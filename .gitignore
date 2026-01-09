@@ -1,0 +1,17 @@
+# build artifacts
+build/
+
+# logs
+screenlog.0
+
+# ESP-IDF
+sdkconfig.old
+
+# macOS
+.DS_Store
+
+# direnv
+.envrc
+
+# VSCode
+.vscode/
