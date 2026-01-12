@@ -1,0 +1,37 @@
+#!/usr/bin/expect -f
+
+set timeout -1
+if {[llength $argv] == 0} {
+    puts "Usage: monitor_log.exp <command...>"
+    exit 1
+}
+
+set project_dir [pwd]
+set log_dir [file join $project_dir log]
+file mkdir $log_dir
+
+set cmd $argv
+spawn -noecho {*}$cmd
+
+expect {
+    -re {--- Quit:} {}
+    -re {esp-idf-monitor} {}
+    timeout {}
+}
+
+after 200
+send "\x14"
+send "\x0c"
+expect {
+    -re {Logging is enabled into file ([^ \r\n]+)} {
+        set log_file $expect_out(1,string)
+        set src [file join $project_dir $log_file]
+        set dst [file join $log_dir $log_file]
+        if {[file exists $src]} {
+            file rename -force $src $dst
+        }
+    }
+    timeout {}
+}
+
+interact

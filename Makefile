@@ -2,7 +2,9 @@
 
 BUILD_DIR ?= build
 TARGET    ?= esp32
-PORT      ?= /dev/cu.usbserial-210
+PORT      ?= /dev/cu.usbserial-110
+# PORT      ?= /dev/cu.usbserial-210
+# PORT      ?= /dev/cu.usbserial-2120
 BAUD      ?= 115200
 IDF_PATH  ?= $(HOME)/.espressif/v5.5.2/esp-idf
 IDF_PY    ?= idf.py
@@ -38,7 +40,7 @@ fullclean:
 
 flash: build
 	@echo ">> $(IDF_PY) -B $(BUILD_DIR) -p $(PORT) flash"
-	$(IDF_PY) -p $(PORT) flash
+	$(IDF_PY) -p $(PORT) -b $(BAUD) flash
 
 monitor:
 	@echo ">> $(IDF_PY) -B $(BUILD_DIR) -p $(PORT) monitor"
@@ -48,25 +50,36 @@ menuconfig:
 	@echo ">> $(IDF_PY) -B $(BUILD_DIR) menuconfig"
 	$(IDF_PY) -B $(BUILD_DIR) menuconfig
 
-# ログをファイルに保存しながらモニタ
-# 終了: Ctrl+A → K → y
-# ログは log.txt に保存される（screen のデフォルト screenlog.0 を終了後にリネーム）
-LOG_FILE ?= screenlog.0
+# ログをファイルに保存しながらモニタ（idf.py monitor のログ機能）
+# ログ開始/終了: Ctrl+T → L
+# 終了: Ctrl+] （モニタの終了キー）
+LOG_DIR ?= log
 log:
-	@rm -f $(LOG_FILE)
-	@echo "ログを $(LOG_FILE) に保存中..."
-	@echo "終了方法: Ctrl+A → K → y"
-	@echo ">> screen -L $(PORT) $(BAUD)"
-	screen -L $(PORT) $(BAUD) ; [ -f $(LOG_FILE) ] 
+	@mkdir -p $(LOG_DIR)
+	@echo "ログは自動で開始します（Ctrl+T → L で停止）"
+	@echo "終了方法: Ctrl+]"
+	@echo "ログファイル: $(LOG_DIR)/log.*.txt"
+	@echo ">> $(IDF_PY) -B $(BUILD_DIR) -p $(PORT) monitor"
+	tools/monitor_log.exp $(IDF_PY) -B $(BUILD_DIR) -p $(PORT) monitor
 
 log-clear:
-	@rm -f $(LOG_FILE)
-	@echo "$(LOG_FILE) をクリアしました"
+	@rm -f $(LOG_DIR)/log.*.txt
+	@echo "$(LOG_DIR)/log.*.txt をクリアしました"
 
 log-view:
-	@echo ">> less $(LOG_FILE)"
-	less $(LOG_FILE)
+	@file=$$(ls -t $(LOG_DIR)/log.*.txt 2>/dev/null | head -1); \
+	if [ -z "$$file" ]; then \
+		echo "$(LOG_DIR)/log.*.txt がありません"; \
+	else \
+		echo ">> less -R $$file"; \
+		less -R "$$file"; \
+	fi
 
 log-clean:
-	@echo ">> cat $(LOG_FILE) | col -b | less"
-	cat $(LOG_FILE) | col -b | less
+	@file=$$(ls -t $(LOG_DIR)/log.*.txt 2>/dev/null | head -1); \
+	if [ -z "$$file" ]; then \
+		echo "$(LOG_DIR)/log.*.txt がありません"; \
+	else \
+		echo ">> cat $$file | col -b | less"; \
+		cat "$$file" | col -b | less; \
+	fi

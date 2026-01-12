@@ -29,6 +29,16 @@ make flash PORT=/dev/tty.usbserial-XXXX
 make monitor PORT=/dev/tty.usbserial-XXXX
 ```
 
+ログを保存する場合:
+
+```bash
+make log PORT=/dev/tty.usbserial-XXXX
+```
+
+- ログは `log/` に `log.*.txt` として保存される
+- 停止: `Ctrl+T` → `L`
+- 終了: `Ctrl+]`
+
 ## Bluetooth 設定 (menuconfig)
 
 ESP-IDF の menuconfig で以下を設定してください。
@@ -43,15 +53,37 @@ ESP-IDF の menuconfig で以下を設定してください。
 
 ## 配線メモ (仮)
 
-### WM8960 (I2S/I2C)
+### PCM5102A (I2S DAC)
 
-- I2S BCLK: GPIO18
-- I2S LRCLK: GPIO19
-- I2S DOUT (ESP32→WM8960): GPIO21
-- I2S DIN (WM8960→ESP32): GPIO20
-- I2C SDA: GPIO2
-- I2C SCL: GPIO3
-- MCLK: 不要（WM8960モジュールの24MHz水晶を使用）
+- VIN: 5V
+- GND: GND
+- BCK: GPIO18
+- LCK/LRCK: GPIO19
+- DIN (ESP32→PCM5102A): GPIO23
+- SCK/MCLK: GNDに接続（内部PLL用。未接続でも動く個体あり）
+- ジャンパ設定（PCM5102Aモジュール）:
+  - XSMT: H（出力ON）
+  - FMT: L（I2S）
+  - DEMP: L（デエンファシス無効）
+  - FLT: L（シャープロールオフ）
+
+#### 今回の修正内容
+
+- 矩形波→正弦波（クリアな音）
+- I2Sスロット設定を16ビットで明示しPCM5102Aと互換
+- SCKピンをGNDへ接続（内部PLL用）
+- 無音時のノイズ対策: HFP無効時はゼロ出力
+
+### PCM1808 (I2S ADC)
+
+- AVDD: 5V（アナログ電源）
+- DVDD: 3.3V（デジタル電源）
+- GND: GND
+- BCK: GPIO18
+- LRCK: GPIO19
+- DOUT (PCM1808→ESP32): GPIO20
+- SCK/MCLK: GPIO25（ESP32のI2S MCLK出力）
+  - 注意: MCLKが必要なADCなので、I2S設定でMCLKを有効化する
 
 ### KS0835F（電話回線エミュレータ）
 

@@ -3,6 +3,7 @@ build/
 
 # logs
 screenlog.0
+log/
 
 # ESP-IDF
 sdkconfig.old

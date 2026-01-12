@@ -30,6 +30,8 @@ static const char *HFP_AUTO_CONNECT_BDA = "fc:2a:9c:2b:50:44"; // XS Max
 
 static volatile esp_hf_client_connection_state_t g_conn_state =
     ESP_HF_CLIENT_CONNECTION_STATE_DISCONNECTED;
+static volatile esp_hf_client_audio_state_t g_audio_state = ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED;
+static bool g_msbc_warned = false;
 
 static void log_bda(const char *label, const esp_bd_addr_t bda) {
     ESP_LOGI(TAG, "%s %02x:%02x:%02x:%02x:%02x:%02x", label,
@@ -149,6 +151,9 @@ static void hfp_audio_data_cb(esp_hf_sync_conn_hdl_t sync_conn_hdl,
 
 static void hfp_data_in_cb(const uint8_t *buf, uint32_t len) {
     static uint32_t rx_bytes = 0;
+    if (g_audio_state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
+        return;
+    }
     rx_bytes += len;
     if ((rx_bytes % 1600) < len) {
         ESP_LOGI(TAG, "Audio RX bytes: %u", rx_bytes);
@@ -287,12 +292,23 @@ static void hfp_callback(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
                  param->audio_stat.sync_conn_handle,
                  param->audio_stat.preferred_frame_size);
         audio_state = param->audio_stat.state;
+        g_audio_state = audio_state;
         if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED ||
             param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
             esp_hf_client_outgoing_data_ready();
         }
+        if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED) {
+            audio_i2s_set_hfp_enabled(true);
+        } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
+            audio_i2s_set_hfp_enabled(false);
+            if (!g_msbc_warned) {
+                ESP_LOGW(TAG, "mSBC audio received but decode is not implemented; muting.");
+                g_msbc_warned = true;
+            }
+        }
         if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
             audio_requested = false;
+            audio_i2s_set_hfp_enabled(true);
         }
         break;
     case ESP_HF_CLIENT_CIND_CALL_EVT:
