@@ -18,10 +18,10 @@
 #include "wm8960.h"
 #endif
 
-#define I2S_BCLK_GPIO GPIO_NUM_18
-#define I2S_LRCLK_GPIO GPIO_NUM_19
-#define I2S_DOUT_GPIO GPIO_NUM_23
-#define I2S_DIN_GPIO GPIO_NUM_20
+#define I2S_BCLK_GPIO GPIO_NUM_32
+#define I2S_LRCLK_GPIO GPIO_NUM_25
+#define I2S_DOUT_GPIO GPIO_NUM_33
+#define I2S_DIN_GPIO I2S_GPIO_UNUSED
 
 #if AUDIO_USE_MCLK
 #define I2S_MCLK_GPIO GPIO_NUM_25
@@ -33,10 +33,23 @@
 #define I2S_BITS_PER_SAMPLE I2S_DATA_BIT_WIDTH_16BIT
 #define I2S_CHANNEL_MODE I2S_SLOT_MODE_STEREO
 
+#define HFP_SAMPLE_RATE 8000
+#if (I2S_SAMPLE_RATE % HFP_SAMPLE_RATE) == 0
+#define HFP_UPSAMPLE_FACTOR (I2S_SAMPLE_RATE / HFP_SAMPLE_RATE)
+#else
+#define HFP_UPSAMPLE_FACTOR 1
+#endif
+
+#define HFP_IN_BUF_BYTES 320
+#define HFP_IN_SAMPLES (HFP_IN_BUF_BYTES / 2)
+#define HFP_OUT_BUF_SAMPLES (HFP_IN_SAMPLES * HFP_UPSAMPLE_FACTOR * 2)
+
 #define AUDIO_STREAM_BUF_SIZE 8192
 #define AUDIO_TASK_STACK_SIZE 4096
 #define TONE_FREQ_HZ 440.0f
 #define TONE_AMPLITUDE 12000.0f
+#define HFP_GAIN 1.5f
+#define HFP_DC_BLOCK_R 0.995f
 
 static const char *TAG = "audio_i2s";
 
@@ -53,10 +66,38 @@ static float s_tone_gain = 0.0f;
 #define TONE_FADE_SAMPLES 256
 static uint32_t s_tone_debug_frames = 0;
 
+static uint8_t s_in_buf[HFP_IN_BUF_BYTES];
+static int16_t s_out_buf[HFP_OUT_BUF_SAMPLES];
+static int16_t s_prev_sample = 0;
+static bool s_prev_sample_valid = false;
+static float s_dc_x = 0.0f;
+static float s_dc_y = 0.0f;
+
+void audio_i2s_reset_hfp_state(void) {
+  s_prev_sample = 0;
+  s_prev_sample_valid = false;
+  s_dc_x = 0.0f;
+  s_dc_y = 0.0f;
+}
+
+static int16_t process_hfp_sample(int16_t sample) {
+  float y = (float)sample - s_dc_x + HFP_DC_BLOCK_R * s_dc_y;
+  s_dc_x = (float)sample;
+  s_dc_y = y;
+
+  float z = y * HFP_GAIN;
+  if (z > 32767.0f) {
+    z = 32767.0f;
+  } else if (z < -32768.0f) {
+    z = -32768.0f;
+  }
+  return (int16_t)z;
+}
+
 static void audio_i2s_task(void *arg) {
   (void)arg;
-  uint8_t in_buf[320];
-  int16_t out_buf[320];
+  uint8_t *in_buf = s_in_buf;
+  int16_t *out_buf = s_out_buf;
   const float phase_step =
       2.0f * (float)M_PI * TONE_FREQ_HZ / (float)I2S_SAMPLE_RATE;
   const float fade_step = 1.0f / (float)TONE_FADE_SAMPLES;
@@ -64,7 +105,7 @@ static void audio_i2s_task(void *arg) {
   while (true) {
     // トーンモードまたはフェードアウト中
     if (s_tone_enabled || s_tone_stopping) {
-      const size_t samples = sizeof(out_buf) / (2 * sizeof(int16_t));
+      const size_t samples = HFP_OUT_BUF_SAMPLES / 2;
 
       // ゲインの目標値を決定
       float target_gain = s_tone_enabled ? 1.0f : 0.0f;
@@ -156,13 +197,24 @@ static void audio_i2s_task(void *arg) {
     }
     read_len &= ~1u;
     size_t samples = read_len / 2;
+    size_t out_idx = 0;
     for (size_t i = 0; i < samples; i++) {
-      int16_t sample = ((int16_t *)in_buf)[i];
-      out_buf[i * 2] = sample;
-      out_buf[i * 2 + 1] = sample;
+      int16_t current = ((int16_t *)in_buf)[i];
+      int16_t start = s_prev_sample_valid ? s_prev_sample : current;
+      for (size_t r = 0; r < HFP_UPSAMPLE_FACTOR; r++) {
+        float t = (HFP_UPSAMPLE_FACTOR > 1)
+                      ? ((float)(r + 1) / (float)HFP_UPSAMPLE_FACTOR)
+                      : 1.0f;
+        float interp = (float)start + ((float)current - (float)start) * t;
+        int16_t sample = process_hfp_sample((int16_t)interp);
+        out_buf[out_idx++] = sample;
+        out_buf[out_idx++] = sample;
+      }
+      s_prev_sample = current;
+      s_prev_sample_valid = true;
     }
 
-    size_t bytes_to_write = samples * 2 * sizeof(int16_t);
+    size_t bytes_to_write = out_idx * sizeof(int16_t);
     size_t bytes_written = 0;
     esp_err_t err = i2s_channel_write(s_tx_chan, out_buf, bytes_to_write,
                                       &bytes_written, portMAX_DELAY);
@@ -202,6 +254,9 @@ esp_err_t audio_i2s_init(void) {
               .ws_pol = false, // LRCLK極性: Lowで左チャンネル
               .bit_shift =
                   true, // Philips I2S: 1ビットシフト（MSBが1クロック遅れる）
+#if SOC_I2S_HW_VERSION_1
+              .msb_right = true,
+#endif
           },
       .gpio_cfg =
           {
@@ -242,6 +297,14 @@ esp_err_t audio_i2s_init(void) {
   s_audio_ready = true;
 
   ESP_LOGI(TAG, "I2S ready (%d Hz, 16-bit stereo).", I2S_SAMPLE_RATE);
+  if (HFP_UPSAMPLE_FACTOR > 1) {
+    ESP_LOGI(TAG, "HFP upsample: %d Hz -> %d Hz (x%d)", HFP_SAMPLE_RATE,
+             I2S_SAMPLE_RATE, HFP_UPSAMPLE_FACTOR);
+  }
+#if (I2S_SAMPLE_RATE % HFP_SAMPLE_RATE) != 0
+  ESP_LOGW(TAG, "HFP sample rate mismatch: %d Hz vs %d Hz; no upsample",
+           HFP_SAMPLE_RATE, I2S_SAMPLE_RATE);
+#endif
   ESP_LOGI(
       TAG,
       "HFP audio is assumed to be PCM; mSBC decode is not implemented yet.");

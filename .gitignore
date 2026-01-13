@@ -3,7 +3,7 @@ build/
 
 # logs
 screenlog.0
-log/
+log.kurodenwa.*.txt
 
 # ESP-IDF
 sdkconfig.old

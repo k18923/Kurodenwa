@@ -54,32 +54,34 @@ menuconfig:
 # ログ開始/終了: Ctrl+T → L
 # 終了: Ctrl+] （モニタの終了キー）
 LOG_DIR ?= log
+LOG_FILE ?= $(LOG_DIR)/monitor.log
 log:
 	@mkdir -p $(LOG_DIR)
+	@rm -f $(LOG_DIR)/log.*.txt $(LOG_FILE)
 	@echo "ログは自動で開始します（Ctrl+T → L で停止）"
 	@echo "終了方法: Ctrl+]"
-	@echo "ログファイル: $(LOG_DIR)/log.*.txt"
+	@echo "ログファイル: $(LOG_FILE)"
 	@echo ">> $(IDF_PY) -B $(BUILD_DIR) -p $(PORT) monitor"
 	tools/monitor_log.exp $(IDF_PY) -B $(BUILD_DIR) -p $(PORT) monitor
 
 log-clear:
-	@rm -f $(LOG_DIR)/log.*.txt
-	@echo "$(LOG_DIR)/log.*.txt をクリアしました"
+	@rm -f $(LOG_FILE)
+	@echo "$(LOG_FILE) をクリアしました"
 
 log-view:
-	@file=$$(ls -t $(LOG_DIR)/log.*.txt 2>/dev/null | head -1); \
-	if [ -z "$$file" ]; then \
-		echo "$(LOG_DIR)/log.*.txt がありません"; \
+	@if [ ! -f "$(LOG_FILE)" ]; then \
+		echo "$(LOG_FILE) がありません"; \
 	else \
-		echo ">> less -R $$file"; \
-		less -R "$$file"; \
+		echo ">> less -R $(LOG_FILE)"; \
+		less -R "$(LOG_FILE)"; \
 	fi
 
 log-clean:
-	@file=$$(ls -t $(LOG_DIR)/log.*.txt 2>/dev/null | head -1); \
-	if [ -z "$$file" ]; then \
-		echo "$(LOG_DIR)/log.*.txt がありません"; \
+	@if [ ! -f "$(LOG_FILE)" ]; then \
+		echo "$(LOG_FILE) がありません"; \
 	else \
-		echo ">> cat $$file | col -b | less"; \
-		cat "$$file" | col -b | less; \
+		echo ">> cat $(LOG_FILE) | col -b | less"; \
+		cat "$(LOG_FILE)" | col -b | less; \
 	fi
+
+start: flash log

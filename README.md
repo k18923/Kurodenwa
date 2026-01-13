@@ -35,7 +35,7 @@ make monitor PORT=/dev/tty.usbserial-XXXX
 make log PORT=/dev/tty.usbserial-XXXX
 ```
 
-- ログは `log/` に `log.*.txt` として保存される
+- ログは `log/monitor.log` に保存される
 - 停止: `Ctrl+T` → `L`
 - 終了: `Ctrl+]`
 
@@ -57,9 +57,9 @@ ESP-IDF の menuconfig で以下を設定してください。
 
 - VIN: 5V
 - GND: GND
-- BCK: GPIO18
-- LCK/LRCK: GPIO19
-- DIN (ESP32→PCM5102A): GPIO23
+- BCK: GPIO32
+- LCK/LRCK: GPIO25
+- DIN (ESP32→PCM5102A): GPIO33
 - SCK/MCLK: GNDに接続（内部PLL用。未接続でも動く個体あり）
 - ジャンパ設定（PCM5102Aモジュール）:
   - XSMT: H（出力ON）
@@ -79,9 +79,9 @@ ESP-IDF の menuconfig で以下を設定してください。
 - AVDD: 5V（アナログ電源）
 - DVDD: 3.3V（デジタル電源）
 - GND: GND
-- BCK: GPIO18
-- LRCK: GPIO19
-- DOUT (PCM1808→ESP32): GPIO20
+- BCK: GPIO32
+- LRCK: GPIO25
+- DOUT (PCM1808→ESP32): 未接続
 - SCK/MCLK: GPIO25（ESP32のI2S MCLK出力）
   - 注意: MCLKが必要なADCなので、I2S設定でMCLKを有効化する
 

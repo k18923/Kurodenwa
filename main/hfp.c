@@ -27,11 +27,50 @@ static const char *HFP_AUTO_CONNECT_BDA = "fc:2a:9c:2b:50:44"; // XS Max
 #define HFP_AUTO_AUDIO 1
 #define HFP_AUTO_CONNECT_DELAY_MS 5000
 #define HFP_SEND_NREC 1
+#define HFP_AUDIO_DISCONNECT_DELAY_MS 400
 
 static volatile esp_hf_client_connection_state_t g_conn_state =
     ESP_HF_CLIENT_CONNECTION_STATE_DISCONNECTED;
 static volatile esp_hf_client_audio_state_t g_audio_state = ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED;
 static bool g_msbc_warned = false;
+static volatile bool g_audio_disconnect_pending = false;
+static esp_bd_addr_t g_audio_disconnect_bda = {0};
+static TaskHandle_t g_audio_disconnect_task = NULL;
+
+static void audio_disconnect_task(void *arg) {
+    (void)arg;
+    vTaskDelay(pdMS_TO_TICKS(HFP_AUDIO_DISCONNECT_DELAY_MS));
+    if (!g_audio_disconnect_pending) {
+        g_audio_disconnect_task = NULL;
+        vTaskDelete(NULL);
+        return;
+    }
+    g_audio_disconnect_pending = false;
+    esp_err_t err = esp_hf_client_disconnect_audio(g_audio_disconnect_bda);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Audio disconnect requested (delayed)");
+    } else {
+        ESP_LOGW(TAG, "Audio disconnect failed (delayed): %s", esp_err_to_name(err));
+    }
+    g_audio_disconnect_task = NULL;
+    vTaskDelete(NULL);
+}
+
+static void schedule_audio_disconnect(const esp_bd_addr_t bda) {
+    if (g_audio_disconnect_pending || g_audio_disconnect_task != NULL) {
+        return;
+    }
+    memcpy(g_audio_disconnect_bda, bda, sizeof(esp_bd_addr_t));
+    g_audio_disconnect_pending = true;
+    if (xTaskCreate(audio_disconnect_task, "hf_audio_disc", 2048, NULL, 5,
+                    &g_audio_disconnect_task) != pdPASS) {
+        g_audio_disconnect_pending = false;
+        g_audio_disconnect_task = NULL;
+        ESP_LOGW(TAG, "Audio disconnect schedule failed");
+    } else {
+        ESP_LOGI(TAG, "Audio disconnect scheduled (%d ms)", HFP_AUDIO_DISCONNECT_DELAY_MS);
+    }
+}
 
 static void log_bda(const char *label, const esp_bd_addr_t bda) {
     ESP_LOGI(TAG, "%s %02x:%02x:%02x:%02x:%02x:%02x", label,
@@ -298,9 +337,14 @@ static void hfp_callback(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
             esp_hf_client_outgoing_data_ready();
         }
         if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED) {
+            audio_i2s_reset_hfp_state();
             audio_i2s_set_hfp_enabled(true);
+            g_audio_disconnect_pending = false;
         } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
             audio_i2s_set_hfp_enabled(false);
+            audio_i2s_reset_hfp_state();
+            audio_i2s_clear_buffer();
+            g_audio_disconnect_pending = false;
             if (!g_msbc_warned) {
                 ESP_LOGW(TAG, "mSBC audio received but decode is not implemented; muting.");
                 g_msbc_warned = true;
@@ -308,13 +352,17 @@ static void hfp_callback(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
         }
         if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
             audio_requested = false;
-            audio_i2s_set_hfp_enabled(true);
+            audio_i2s_set_hfp_enabled(false);
+            audio_i2s_reset_hfp_state();
+            audio_i2s_clear_buffer();
+            g_audio_disconnect_pending = false;
         }
         break;
     case ESP_HF_CLIENT_CIND_CALL_EVT:
         ESP_LOGI(TAG, "Call status: %s", call_status_to_str(param->call.status));
 #if HFP_AUTO_AUDIO
         if (param->call.status == ESP_HF_CALL_STATUS_CALL_IN_PROGRESS && !audio_requested) {
+            g_audio_disconnect_pending = false;
             if (audio_state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED ||
                 audio_state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
                 ESP_LOGI(TAG, "Audio already connected, skip request");
@@ -338,12 +386,7 @@ static void hfp_callback(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
                 audio_requested = false;
                 break;
             }
-            esp_err_t err = esp_hf_client_disconnect_audio(active_bda);
-            if (err == ESP_OK) {
-                ESP_LOGI(TAG, "Audio disconnect requested");
-            } else {
-                ESP_LOGW(TAG, "Audio disconnect failed: %s", esp_err_to_name(err));
-            }
+            schedule_audio_disconnect(active_bda);
             audio_requested = false;
         }
 #endif
