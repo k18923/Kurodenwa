@@ -12,7 +12,7 @@
 
 #define AUDIO_CODEC_PCM5102A 1
 #define AUDIO_CODEC_WM8960 0
-#define AUDIO_USE_MCLK 0
+#define AUDIO_USE_MCLK 1 // 0にするとMCLK出力を無効化
 
 #if AUDIO_CODEC_WM8960
 #include "wm8960.h"
@@ -24,7 +24,7 @@
 #define I2S_DIN_GPIO I2S_GPIO_UNUSED
 
 #if AUDIO_USE_MCLK
-#define I2S_MCLK_GPIO GPIO_NUM_25
+#define I2S_MCLK_GPIO GPIO_NUM_0
 #else
 #define I2S_MCLK_GPIO I2S_GPIO_UNUSED
 #endif
@@ -72,6 +72,7 @@ static int16_t s_prev_sample = 0;
 static bool s_prev_sample_valid = false;
 static float s_dc_x = 0.0f;
 static float s_dc_y = 0.0f;
+
 
 void audio_i2s_reset_hfp_state(void) {
   s_prev_sample = 0;
@@ -291,7 +292,6 @@ esp_err_t audio_i2s_init(void) {
     ESP_LOGE(TAG, "Audio stream buffer allocation failed");
     return ESP_ERR_NO_MEM;
   }
-
   xTaskCreate(audio_i2s_task, "audio_i2s_task", AUDIO_TASK_STACK_SIZE, NULL, 5,
               NULL);
   s_audio_ready = true;

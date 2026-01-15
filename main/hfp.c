@@ -31,11 +31,14 @@ static const char *HFP_AUTO_CONNECT_BDA = "fc:2a:9c:2b:50:44"; // XS Max
 
 static volatile esp_hf_client_connection_state_t g_conn_state =
     ESP_HF_CLIENT_CONNECTION_STATE_DISCONNECTED;
+static bool g_auto_answer_enabled = HFP_AUTO_ANSWER;
 static volatile esp_hf_client_audio_state_t g_audio_state = ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED;
 static bool g_msbc_warned = false;
 static volatile bool g_audio_disconnect_pending = false;
 static esp_bd_addr_t g_audio_disconnect_bda = {0};
 static TaskHandle_t g_audio_disconnect_task = NULL;
+static hfp_call_status_callback_t g_call_status_cb = NULL;
+static hfp_call_setup_callback_t g_call_setup_cb = NULL;
 
 static void audio_disconnect_task(void *arg) {
     (void)arg;
@@ -194,7 +197,7 @@ static void hfp_data_in_cb(const uint8_t *buf, uint32_t len) {
         return;
     }
     rx_bytes += len;
-    if ((rx_bytes % 1600) < len) {
+    if ((rx_bytes % 8000) < len) {
         ESP_LOGI(TAG, "Audio RX bytes: %u", rx_bytes);
     }
     audio_i2s_push_hfp_audio(buf, len);
@@ -202,9 +205,11 @@ static void hfp_data_in_cb(const uint8_t *buf, uint32_t len) {
 }
 
 static uint32_t hfp_data_out_cb(uint8_t *buf, uint32_t len) {
-    (void)buf;
-    (void)len;
-    return 0;
+    if (!buf || len == 0) {
+        return 0;
+    }
+    memset(buf, 0, len);
+    return len;
 }
 
 static void try_auto_connect(void) {
@@ -281,7 +286,6 @@ static void gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *par
 }
 
 static void hfp_callback(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_t *param) {
-    static bool auto_answer_sent = false;
 #if HFP_AUTO_DIAL
     static bool auto_dial_sent = false;
 #endif
@@ -390,22 +394,15 @@ static void hfp_callback(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
             audio_requested = false;
         }
 #endif
+        if (g_call_status_cb) {
+            g_call_status_cb(param->call.status);
+        }
         break;
     case ESP_HF_CLIENT_CIND_CALL_SETUP_EVT:
         ESP_LOGI(TAG, "Call setup: %s", call_setup_to_str(param->call_setup.status));
-#if HFP_AUTO_ANSWER
-        if (param->call_setup.status == ESP_HF_CALL_SETUP_STATUS_INCOMING && !auto_answer_sent) {
-            esp_err_t err = esp_hf_client_answer_call();
-            if (err == ESP_OK) {
-                ESP_LOGI(TAG, "Auto-answer sent");
-                auto_answer_sent = true;
-            } else {
-                ESP_LOGW(TAG, "Auto-answer failed: %s", esp_err_to_name(err));
-            }
-        } else if (param->call_setup.status == ESP_HF_CALL_SETUP_STATUS_IDLE) {
-            auto_answer_sent = false;
+        if (g_call_setup_cb) {
+            g_call_setup_cb(param->call_setup.status);
         }
-#endif
         break;
     case ESP_HF_CLIENT_CIND_CALL_HELD_EVT:
         ESP_LOGI(TAG, "Call held: %s", call_held_to_str(param->call_held.status));
@@ -500,4 +497,48 @@ esp_err_t hfp_init(void) {
 
     ESP_LOGI(TAG, "HFP initialized. Pair from phone (search \"Kurodenwa\").");
     return ESP_OK;
+}
+
+void hfp_set_auto_answer(bool enabled) {
+    g_auto_answer_enabled = enabled;
+    ESP_LOGI(TAG, "Auto-answer %s", enabled ? "ENABLED" : "DISABLED");
+}
+
+bool hfp_get_auto_answer(void) {
+    return g_auto_answer_enabled;
+}
+
+void hfp_set_call_status_callback(hfp_call_status_callback_t callback) {
+    g_call_status_cb = callback;
+}
+
+void hfp_set_call_setup_callback(hfp_call_setup_callback_t callback) {
+    g_call_setup_cb = callback;
+}
+
+esp_err_t hfp_answer_call(void) {
+    esp_err_t err = esp_hf_client_answer_call();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Answer failed: %s", esp_err_to_name(err));
+    }
+    return err;
+}
+
+esp_err_t hfp_hangup_call(void) {
+    esp_err_t err = esp_hf_client_reject_call();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Hangup failed: %s", esp_err_to_name(err));
+    }
+    return err;
+}
+
+esp_err_t hfp_dial_number(const char *number) {
+    if (!number || number[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = esp_hf_client_dial(number);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Dial failed: %s", esp_err_to_name(err));
+    }
+    return err;
 }

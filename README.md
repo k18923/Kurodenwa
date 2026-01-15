@@ -2,10 +2,17 @@
 
 ESP32-DevKitC WROOM-32 を使って黒電話を Bluetooth HFP 子機化するプロジェクトの新規版です。
 
+## 使用モジュール
+
+- 黒電話 601A
+- KS0835F: SLIC(Subscriber Line Interface Circuuit)
+- PCM5102A (I2S DAC, スピーカー)
+- PCM1808 (I2S ADC, マイク)
+
 ## 目標 (優先順)
 
 1. HFP 通話
-2. I2S 音声 (WM8960)
+2. I2S 音声
 3. リング制御 (KS0835F)
 4. ダイヤル/フック検出
 
@@ -81,15 +88,22 @@ ESP-IDF の menuconfig で以下を設定してください。
 - GND: GND
 - BCK: GPIO32
 - LRCK: GPIO25
-- DOUT (PCM1808→ESP32): 未接続
-- SCK/MCLK: GPIO25（ESP32のI2S MCLK出力）
-  - 注意: MCLKが必要なADCなので、I2S設定でMCLKを有効化する
+- DOUT (PCM1808→ESP32): GPIO34
+- SCK/MCLK: GPIO0（ESP32のI2S MCLK出力）
+  - 注意: MCLKが必要なADCなので、I2S設定でMCLKを有効化する（無効化する場合は `AUDIO_USE_MCLK` を 0 にする）
 
 ### KS0835F（電話回線エミュレータ）
 
-- RM (Ringing Mode): GPIO16
-- SHK (Switch Hook): GPIO17
-- DP (Dial Pulse): GPIO22
+最新接続表（GPIO 5/19/21 使用案）:
+
+| KS0835F ピン | ピン名 | ESP32 GPIO | 役割と動作のポイント |
+| --- | --- | --- | --- |
+| 3 | F/R | GPIO5 | 20Hz〜25Hz でトグルしてベル信号生成 |
+| 4 | RM | GPIO19 | リンギング時は HIGH、待機時は LOW |
+| 5 | SHK | GPIO21 | フック検出。オフフックで HIGH、10ms 程度のデバウンス推奨 |
+| 9 | GND | GND | 共通グランド |
+| 10 | +VDC | 5V / 3.3V | 電源入力。ベル鳴動時は電流が増えるので注意 |
+| 11 | PD | NC / GPIO | パワーダウン。LOW で停止。HIGH 直結は避ける |
 
 ## 構成
 
@@ -101,3 +115,56 @@ main/
   ring_control.c/ring_control.h
   dial_hook.c/dial_hook.h
 ```
+
+## 状態遷移仕様（黒電話）
+
+### 状態（State）
+| ID | 説明 |
+| --- | --- |
+| IDLE | 待受（オンフック） |
+| RINGING | 着信中（ベル鳴動） |
+| OFFHOOK_IDLE | オフフック直後（まだダイヤルなし） |
+| DIALING | ダイヤルパルス送出中 |
+| OUTBOUND_RING | 相手呼び出し中 |
+| TALKING | 通話中 |
+
+### イベント（Event）
+#### ユーザ操作
+| ID | 説明 |
+| --- | --- |
+| HOOK_OFF | 受話器を上げる |
+| HOOK_ON | 受話器を置く |
+| DIAL_START | ダイヤル回し始め |
+| DIAL_PULSE | パルス1回 |
+| DIAL_DIGIT_END | 1桁完了 |
+
+#### 内部イベント
+| ID | 説明 |
+| --- | --- |
+| NUMBER_COMPLETE | 番号入力完了（タイムアウト） |
+
+#### 局／外部イベント
+| ID | 説明 |
+| --- | --- |
+| RING_START | 着信開始 |
+| RING_STOP | 着信停止 |
+| PEER_ANSWER | 相手応答 |
+| PEER_HANGUP | 相手切断 |
+
+### 主な状態遷移
+| 現在状態 | イベント | 次状態 | 備考 |
+| --- | --- | --- | --- |
+| IDLE | RING_START | RINGING |  |
+| IDLE | HOOK_OFF | OFFHOOK_IDLE |  |
+| RINGING | HOOK_OFF | TALKING | 応答 |
+| RINGING | RING_STOP | IDLE |  |
+| OFFHOOK_IDLE | DIAL_START | DIALING |  |
+| OFFHOOK_IDLE | HOOK_ON | IDLE |  |
+| DIALING | DIAL_DIGIT_END | OFFHOOK_IDLE | 次桁待ち |
+| DIALING | NUMBER_COMPLETE | OUTBOUND_RING | 発信開始 |
+| DIALING | HOOK_ON | IDLE |  |
+| OUTBOUND_RING | PEER_ANSWER | TALKING |  |
+| OUTBOUND_RING | PEER_HANGUP | OFFHOOK_IDLE | 話中音 |
+| OUTBOUND_RING | HOOK_ON | IDLE |  |
+| TALKING | HOOK_ON | IDLE |  |
+| TALKING | PEER_HANGUP | OFFHOOK_IDLE |  |

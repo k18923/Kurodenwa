@@ -6,6 +6,7 @@ idf_component_register(
         "wm8960.c"
         "ring_control.c"
         "dial_hook.c"
+       
     INCLUDE_DIRS
         "."
 )
