@@ -77,7 +77,7 @@ ESP-IDF の menuconfig で以下を設定してください。
 #### 今回の修正内容
 
 - 矩形波→正弦波（クリアな音）
-- I2Sスロット設定を16ビットで明示しPCM5102Aと互換
+- PCM1808 取り込みのため I2S を 32bit スロットに変更（PCM5102A は 16bit 相当を上位ビットに載せて送出）
 - SCKピンをGNDへ接続（内部PLL用）
 - 無音時のノイズ対策: HFP無効時はゼロ出力
 
@@ -88,7 +88,7 @@ ESP-IDF の menuconfig で以下を設定してください。
 - GND: GND
 - BCK: GPIO32
 - LRCK: GPIO25
-- DOUT (PCM1808→ESP32): GPIO34
+- DOUT (PCM1808→ESP32): GPIO35
 - SCK/MCLK: GPIO0（ESP32のI2S MCLK出力）
   - 注意: MCLKが必要なADCなので、I2S設定でMCLKを有効化する（無効化する場合は `AUDIO_USE_MCLK` を 0 にする）
 

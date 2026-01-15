@@ -208,7 +208,15 @@ static uint32_t hfp_data_out_cb(uint8_t *buf, uint32_t len) {
     if (!buf || len == 0) {
         return 0;
     }
-    memset(buf, 0, len);
+    if (g_audio_state != ESP_HF_CLIENT_AUDIO_STATE_CONNECTED) {
+        memset(buf, 0, len);
+        return len;
+    }
+
+    size_t got = audio_i2s_pop_mic_audio(buf, len);
+    if (got < len) {
+        memset(buf + got, 0, len - got);
+    }
     return len;
 }
 
@@ -343,9 +351,11 @@ static void hfp_callback(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
         if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED) {
             audio_i2s_reset_hfp_state();
             audio_i2s_set_hfp_enabled(true);
+            audio_i2s_set_mic_enabled(true);
             g_audio_disconnect_pending = false;
         } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
             audio_i2s_set_hfp_enabled(false);
+            audio_i2s_set_mic_enabled(false);
             audio_i2s_reset_hfp_state();
             audio_i2s_clear_buffer();
             g_audio_disconnect_pending = false;
@@ -357,6 +367,7 @@ static void hfp_callback(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
         if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
             audio_requested = false;
             audio_i2s_set_hfp_enabled(false);
+            audio_i2s_set_mic_enabled(false);
             audio_i2s_reset_hfp_state();
             audio_i2s_clear_buffer();
             g_audio_disconnect_pending = false;

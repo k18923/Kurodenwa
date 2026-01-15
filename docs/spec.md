@@ -16,7 +16,7 @@
 - HFP の SCO 音声データパスは `menuconfig` で **PCM** を選択する前提
 
 ### 非スコープ（現状未実装/未提供）
-- マイク入力（I2S ADC / PCM1808 取り込み）→ HFP 送話
+- （高音質化は未実装だが）マイク入力（I2S ADC / PCM1808 取り込み）→ HFP 送話
 - mSBC デコード（mSBC の場合はミュート）
 - リングの鳴動パターン（ON/OFF 繰り返し等のパターン制御）
 
@@ -36,6 +36,7 @@
 | I2S BCLK | PCM5102A | BCK | GPIO32 | `main/audio_i2s.c` |
 | I2S LRCLK | PCM5102A | LCK/LRCK | GPIO25 | `main/audio_i2s.c` |
 | I2S DOUT | PCM5102A | DIN | GPIO33 | `main/audio_i2s.c` |
+| I2S DIN | PCM1808 | DOUT | GPIO35 | `main/audio_i2s.c` |
 | I2S MCLK | （PCM1808等） | SCK/MCLK | GPIO0（`AUDIO_USE_MCLK=1`） | `main/audio_i2s.c` |
 | ベル制御 | KS0835F | F/R | GPIO5 | `main/ring_control.c` |
 | ベル制御 | KS0835F | RM | GPIO19 | `main/ring_control.c` |
@@ -48,7 +49,7 @@
 
 ### 配線メモ（README.md の要約）
 - PCM5102A: `VIN=5V`, `BCK=GPIO32`, `LRCK=GPIO25`, `DIN=GPIO33`, `SCK/MCLK=GND`（PLL利用）
-- PCM1808: `AVDD=5V`, `DVDD=3.3V`, `BCK=GPIO32`, `LRCK=GPIO25`, `DOUT=GPIO34`, `MCLK=GPIO0`（必要）
+- PCM1808: `AVDD=5V`, `DVDD=3.3V`, `BCK=GPIO32`, `LRCK=GPIO25`, `DOUT=GPIO35`, `MCLK=GPIO0`（必要）
 - KS0835F: `F/R=GPIO5`, `RM=GPIO19`, `SHK=GPIO21`, `+VDC=5V/3.3V`, `GND=GND`
 
 ## 3. ソフトウェア構成
@@ -67,7 +68,7 @@ main/
 ### 役割分担（概略）
 - `hfp.*`: ペアリング/接続、通話状態イベントの通知、音声接続（SCO）要求/切断の補助。
 - `main.c`: 黒電話としての状態（待受/着信/発信/通話）を管理し、フック/ダイヤルイベントと HFP イベントを統合して振る舞いを決める。
-- `audio_i2s.*`: 受信した HFP 音声（PCM 想定）を I2S 48kHz/16bit/stereo で出力する。
+- `audio_i2s.*`: 受信した HFP 音声（PCM 想定）を I2S 48kHz/32bit slot/stereo で出力する（16bit 相当を上位ビットに配置）。
 - `ring_control.*`: KS0835F を使ってベルを鳴らす。
 - `dial_hook.*`: `SHK` のレベル変化からオンフック/オフフックとパルス数を推定する。
 
@@ -98,7 +99,7 @@ main/
 ## 5. 音声（I2S）仕様（現状実装）
 
 ### 出力フォーマット
-- I2S: 48kHz / 16bit / stereo / master
+- I2S: 48kHz / 32bit slot / stereo / master
 - ピン: BCLK=GPIO32, LRCLK=GPIO25, DOUT=GPIO33
 - `AUDIO_USE_MCLK=1` の場合: MCLK=GPIO0 を出力する
 
@@ -203,4 +204,3 @@ UART0 上で簡易コンソールを起動し、以下のコマンドを提供�
 - `docs/HFP_v1.9.pdf` / `docs/HFP_v1.9 ja.pdf`: HFP 仕様（参照用）
 - `docs/WM8960.pdf`: WM8960 データシート
 - `docs/esp32_devkitC_v4_pinlayout.png`: ピン配置
-
