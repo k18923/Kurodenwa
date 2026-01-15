@@ -116,6 +116,10 @@ main/
   dial_hook.c/dial_hook.h
 ```
 
+## 仕様ドキュメント（暫定）
+
+- `docs/spec.md`（README/TODO/実装から仕様を整理）
+
 ## 状態遷移仕様（黒電話）
 
 ### 状態（State）
