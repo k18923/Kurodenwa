@@ -400,6 +400,7 @@ static int cmd_help(int argc, char **argv) {
     printf("  r        ベル手動トグル\n");
     printf("  a        自動応答 ON/OFF\n");
     printf("  b        鳴動 ON/OFF\n");
+    printf("  m        マイクモニタ ON/OFF（HFP未接続時）\n");
     printf("  s        状態表示\n");
     printf("  ?        ヘルプ表示\n");
     printf("====================\n\n");
@@ -433,6 +434,7 @@ static int cmd_status(int argc, char **argv) {
     printf("  Hook         : %s\n", hook_state_to_str(s_hook_state));
     printf("  Auto-answer  : %s\n", hfp_get_auto_answer() ? "ON" : "OFF");
     printf("  Ring enabled : %s\n", s_ring_enabled ? "ON" : "OFF");
+    printf("  Mic monitor  : %s\n", audio_i2s_get_mic_monitor() ? "ON" : "OFF");
     printf("  HFP call     : %s\n", hfp_call_status_to_str(s_hfp_call_status));
     printf("  HFP setup    : %s\n", hfp_call_setup_to_str(s_hfp_call_setup));
     printf("  Dial buffer  : %s\n", s_dial_buffer[0] ? s_dial_buffer : "-");
@@ -445,6 +447,13 @@ static int cmd_tone(int argc, char **argv) {
     (void)argc;
     (void)argv;
     audio_i2s_toggle_tone();
+    return 0;
+}
+
+static int cmd_mic_monitor(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
+    audio_i2s_toggle_mic_monitor();
     return 0;
 }
 
@@ -484,6 +493,15 @@ static void register_console_commands(void) {
         .argtable = NULL,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&ring_enable_cmd));
+
+    const esp_console_cmd_t mic_monitor_cmd = {
+        .command = "m",
+        .help = "Toggle mic monitor (idle only)",
+        .hint = NULL,
+        .func = &cmd_mic_monitor,
+        .argtable = NULL,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&mic_monitor_cmd));
 
     const esp_console_cmd_t status_cmd = {
         .command = "s",

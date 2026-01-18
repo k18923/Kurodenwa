@@ -64,6 +64,7 @@
 #define MIC_TASK_STACK_SIZE 4096
 #define MIC_STREAM_CHUNK_BYTES 160
 #define MIC_NOISE_GATE_THRESHOLD 2000
+#define MIC_MONITOR_DEFAULT 0
 #define TONE_FREQ_HZ 440.0f
 #define TONE_AMPLITUDE 12000.0f
 #define HFP_GAIN 1.5f
@@ -83,6 +84,7 @@ static volatile bool s_tone_enabled = false;
 static volatile bool s_tone_stopping = false;
 static bool s_hfp_enabled = true;
 static volatile bool s_mic_enabled = false;
+static volatile bool s_mic_monitor_enabled = MIC_MONITOR_DEFAULT;
 static float s_tone_phase = 0.0f;
 static float s_tone_gain = 0.0f;
 
@@ -93,6 +95,8 @@ static uint8_t s_in_buf[HFP_IN_BUF_BYTES];
 static int32_t s_out_buf[HFP_OUT_BUF_SAMPLES];
 static int16_t s_prev_sample = 0;
 static bool s_prev_sample_valid = false;
+static int16_t s_prev_mic_sample = 0;
+static bool s_prev_mic_valid = false;
 static float s_dc_x = 0.0f;
 static float s_dc_y = 0.0f;
 
@@ -199,8 +203,44 @@ static void audio_i2s_task(void *arg) {
       continue;
     }
 
-    // HFPが無効の場合は無音を出力
+    // HFPが無効の場合は無音またはマイクモニタを出力
     if (!s_hfp_enabled) {
+      if (s_mic_monitor_enabled) {
+      size_t mic_read =
+          xStreamBufferReceive(s_mic_stream, in_buf, sizeof(s_in_buf), 0);
+      if (mic_read < 2) {
+        memset(out_buf, 0, sizeof(out_buf));
+        size_t bytes_written = 0;
+        i2s_channel_write(s_tx_chan, out_buf, sizeof(out_buf), &bytes_written,
+                          portMAX_DELAY);
+        vTaskDelay(pdMS_TO_TICKS(5)); // CPU負荷軽減
+        continue;
+      }
+      mic_read &= ~1u;
+      size_t mic_samples = mic_read / 2;
+      size_t out_idx = 0;
+      for (size_t i = 0; i < mic_samples; i++) {
+        int16_t current = ((int16_t *)in_buf)[i];
+        int16_t start = s_prev_mic_valid ? s_prev_mic_sample : current;
+        for (size_t r = 0; r < HFP_UPSAMPLE_FACTOR; r++) {
+          float t = (HFP_UPSAMPLE_FACTOR > 1)
+                        ? ((float)(r + 1) / (float)HFP_UPSAMPLE_FACTOR)
+                        : 1.0f;
+          float interp = (float)start + ((float)current - (float)start) * t;
+          int16_t sample = (int16_t)interp;
+          int32_t sample32 = ((int32_t)sample) << 16;
+          out_buf[out_idx++] = sample32;
+          out_buf[out_idx++] = sample32;
+        }
+        s_prev_mic_sample = current;
+        s_prev_mic_valid = true;
+      }
+      size_t bytes_to_write = out_idx * sizeof(int32_t);
+      size_t bytes_written = 0;
+      i2s_channel_write(s_tx_chan, out_buf, bytes_to_write, &bytes_written,
+                        portMAX_DELAY);
+      continue;
+      }
       memset(out_buf, 0, sizeof(out_buf));
       size_t bytes_written = 0;
       i2s_channel_write(s_tx_chan, out_buf, sizeof(out_buf), &bytes_written,
@@ -344,7 +384,7 @@ static void mic_capture_task(void *arg) {
       offset += written;
     }
     int64_t now_us = esp_timer_get_time();
-    if (now_us - last_tx_notify_us >= 5000) {
+    if (s_hfp_enabled && now_us - last_tx_notify_us >= 5000) {
       esp_hf_client_outgoing_data_ready();
       last_tx_notify_us = now_us;
     }
@@ -516,10 +556,27 @@ void audio_i2s_toggle_tone(void) {
   }
 }
 
+void audio_i2s_toggle_mic_monitor(void) {
+  s_mic_monitor_enabled = !s_mic_monitor_enabled;
+  ESP_LOGI(TAG, "Mic monitor %s", s_mic_monitor_enabled ? "ON" : "OFF");
+  if (!s_hfp_enabled) {
+    s_mic_enabled = s_mic_monitor_enabled;
+  }
+  if (s_mic_stream) {
+    xStreamBufferReset(s_mic_stream);
+  }
+}
+
+bool audio_i2s_get_mic_monitor(void) { return s_mic_monitor_enabled; }
+
 void audio_i2s_set_hfp_enabled(bool enabled) { s_hfp_enabled = enabled; }
 
 void audio_i2s_set_mic_enabled(bool enabled) {
-  s_mic_enabled = enabled;
+  if (!s_hfp_enabled && s_mic_monitor_enabled) {
+    s_mic_enabled = true;
+  } else {
+    s_mic_enabled = enabled;
+  }
   if (s_mic_stream) {
     xStreamBufferReset(s_mic_stream);
   }
