@@ -205,17 +205,27 @@ static void hfp_data_in_cb(const uint8_t *buf, uint32_t len) {
 }
 
 static uint32_t hfp_data_out_cb(uint8_t *buf, uint32_t len) {
+    static uint32_t tx_cb_calls = 0;
     if (!buf || len == 0) {
         return 0;
+    }
+    if (tx_cb_calls < 5) {
+        ESP_LOGI(TAG, "Audio TX cb: len=%u state=%s", len, audio_state_to_str(g_audio_state));
+        tx_cb_calls++;
     }
     if (g_audio_state != ESP_HF_CLIENT_AUDIO_STATE_CONNECTED) {
         memset(buf, 0, len);
         return len;
     }
 
+    static uint32_t tx_bytes = 0;
     size_t got = audio_i2s_pop_mic_audio(buf, len);
     if (got < len) {
         memset(buf + got, 0, len - got);
+    }
+    tx_bytes += (uint32_t)got;
+    if ((tx_bytes % 8000) < got) {
+        ESP_LOGI(TAG, "Audio TX bytes: %u", tx_bytes);
     }
     return len;
 }

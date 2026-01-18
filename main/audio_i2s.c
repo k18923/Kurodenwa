@@ -4,8 +4,10 @@
 #include <string.h>
 
 #include "driver/i2s_std.h"
+#include "esp_hf_client_api.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/stream_buffer.h"
 #include "freertos/task.h"
@@ -21,7 +23,7 @@
 #define I2S_BCLK_GPIO GPIO_NUM_32
 #define I2S_LRCLK_GPIO GPIO_NUM_25
 #define I2S_DOUT_GPIO GPIO_NUM_33
-#define I2S_DIN_GPIO GPIO_NUM_35
+#define I2S_DIN_GPIO GPIO_NUM_34
 
 #if AUDIO_USE_MCLK
 #define I2S_MCLK_GPIO GPIO_NUM_0
@@ -30,9 +32,12 @@
 #endif
 
 #define I2S_SAMPLE_RATE 48000
-#define I2S_BITS_PER_SAMPLE I2S_DATA_BIT_WIDTH_32BIT
-#define I2S_SLOT_BITS I2S_SLOT_BIT_WIDTH_32BIT
-#define I2S_WS_WIDTH 32
+#define I2S_TX_BITS_PER_SAMPLE I2S_DATA_BIT_WIDTH_32BIT
+#define I2S_TX_SLOT_BITS I2S_SLOT_BIT_WIDTH_32BIT
+#define I2S_TX_WS_WIDTH 32
+#define I2S_RX_BITS_PER_SAMPLE I2S_DATA_BIT_WIDTH_32BIT
+#define I2S_RX_SLOT_BITS I2S_SLOT_BIT_WIDTH_32BIT
+#define I2S_RX_WS_WIDTH 32
 #define I2S_CHANNEL_MODE I2S_SLOT_MODE_STEREO
 
 #define HFP_SAMPLE_RATE 8000
@@ -47,19 +52,23 @@
 #define HFP_OUT_BUF_SAMPLES (HFP_IN_SAMPLES * HFP_UPSAMPLE_FACTOR * 2) // interleaved stereo
 
 #if (I2S_SAMPLE_RATE % HFP_SAMPLE_RATE) == 0
-#define MIC_DOWNSAMPLE_FACTOR (I2S_SAMPLE_RATE / HFP_SAMPLE_RATE)
+#define MIC_EXTRA_DOWNSAMPLE 1
+#define MIC_DOWNSAMPLE_FACTOR ((I2S_SAMPLE_RATE / HFP_SAMPLE_RATE) * MIC_EXTRA_DOWNSAMPLE)
 #else
 #define MIC_DOWNSAMPLE_FACTOR 1
 #endif
 
 #define AUDIO_STREAM_BUF_SIZE 8192
 #define AUDIO_TASK_STACK_SIZE 4096
-#define MIC_STREAM_BUF_SIZE 2048
-#define MIC_TASK_STACK_SIZE 3072
+#define MIC_STREAM_BUF_SIZE 65536
+#define MIC_TASK_STACK_SIZE 4096
+#define MIC_STREAM_CHUNK_BYTES 160
+#define MIC_NOISE_GATE_THRESHOLD 2000
 #define TONE_FREQ_HZ 440.0f
 #define TONE_AMPLITUDE 12000.0f
 #define HFP_GAIN 1.5f
 #define HFP_DC_BLOCK_R 0.995f
+#define MIC_SHIFT_BITS 12
 
 static const char *TAG = "audio_i2s";
 
@@ -73,7 +82,7 @@ static uint32_t s_mic_drop_bytes = 0;
 static volatile bool s_tone_enabled = false;
 static volatile bool s_tone_stopping = false;
 static bool s_hfp_enabled = true;
-static volatile bool s_mic_enabled = true;
+static volatile bool s_mic_enabled = false;
 static float s_tone_phase = 0.0f;
 static float s_tone_gain = 0.0f;
 
@@ -246,11 +255,15 @@ static void mic_capture_task(void *arg) {
   (void)arg;
 
   // 32-bit stereo frames
-  int32_t rx_buf[256 * 2];
-  int16_t out_buf[256];
+  static int32_t rx_buf[256 * 2];
+  static int16_t out_buf[256];
 
   int64_t acc = 0;
   uint32_t acc_count = 0;
+  int16_t peak = 0;
+  int64_t last_log_us = 0;
+  int64_t last_tx_notify_us = 0;
+  uint32_t raw_log_frames = 0;
 
   while (true) {
     size_t bytes_read = 0;
@@ -267,11 +280,20 @@ static void mic_capture_task(void *arg) {
     size_t frames = bytes_read / (sizeof(int32_t) * 2);
     size_t out_samples = 0;
 
+    if (raw_log_frames < 8 && frames > 0) {
+      ESP_LOGI(TAG,
+               "Mic raw L/R[0]=%ld/%ld L/R[1]=%ld/%ld",
+               (long)rx_buf[0],
+               (long)rx_buf[1],
+               (long)rx_buf[2],
+               (long)rx_buf[3]);
+      raw_log_frames++;
+    }
+
     for (size_t i = 0; i < frames; i++) {
       int32_t l = rx_buf[i * 2];
-      int32_t r = rx_buf[i * 2 + 1];
-      int32_t mixed = (l / 2) + (r / 2);
-      int16_t sample16 = (int16_t)(mixed >> 16);
+      int32_t mixed = l;
+      int16_t sample16 = (int16_t)(mixed >> MIC_SHIFT_BITS);
 
       acc += sample16;
       acc_count++;
@@ -282,6 +304,9 @@ static void mic_capture_task(void *arg) {
           avg = 32767;
         } else if (avg < -32768) {
           avg = -32768;
+        }
+        if (abs(avg) > peak) {
+          peak = abs(avg);
         }
         out_buf[out_samples++] = (int16_t)avg;
         acc = 0;
@@ -297,13 +322,40 @@ static void mic_capture_task(void *arg) {
       continue;
     }
     size_t bytes_to_send = out_samples * sizeof(int16_t);
-    size_t written = xStreamBufferSend(s_mic_stream, out_buf, bytes_to_send, 0);
-    if (written < bytes_to_send) {
-      s_mic_drop_bytes += (uint32_t)(bytes_to_send - written);
-      if ((s_mic_drop_bytes % 2048) < (bytes_to_send - written)) {
-        ESP_LOGW(TAG, "Dropped mic bytes: %u", s_mic_drop_bytes);
-      }
+    if (peak < MIC_NOISE_GATE_THRESHOLD) {
+      memset(out_buf, 0, bytes_to_send);
     }
+    size_t offset = 0;
+    while (offset < bytes_to_send) {
+      size_t chunk = bytes_to_send - offset;
+      if (chunk > MIC_STREAM_CHUNK_BYTES) {
+        chunk = MIC_STREAM_CHUNK_BYTES;
+      }
+      size_t written = xStreamBufferSend(
+          s_mic_stream, ((uint8_t *)out_buf) + offset, chunk,
+          pdMS_TO_TICKS(20));
+      if (written < chunk) {
+        s_mic_drop_bytes += (uint32_t)(chunk - written);
+        if ((s_mic_drop_bytes % 2048) < (chunk - written)) {
+          ESP_LOGW(TAG, "Dropped mic bytes: %u", s_mic_drop_bytes);
+        }
+        break;
+      }
+      offset += written;
+    }
+    int64_t now_us = esp_timer_get_time();
+    if (now_us - last_tx_notify_us >= 5000) {
+      esp_hf_client_outgoing_data_ready();
+      last_tx_notify_us = now_us;
+    }
+
+    now_us = esp_timer_get_time();
+    if (now_us - last_log_us > 1000000) {
+      ESP_LOGI(TAG, "Mic peak: %d", peak);
+      peak = 0;
+      last_log_us = now_us;
+    }
+    vTaskDelay(pdMS_TO_TICKS(1));
   }
 }
 
@@ -324,16 +376,15 @@ esp_err_t audio_i2s_init(void) {
     return err;
   }
 
-  i2s_std_config_t std_cfg = {
+  i2s_std_config_t tx_cfg = {
       .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(I2S_SAMPLE_RATE),
       .slot_cfg =
           {
-              .data_bit_width = I2S_BITS_PER_SAMPLE,
-              .slot_bit_width =
-                  I2S_SLOT_BITS,
+              .data_bit_width = I2S_TX_BITS_PER_SAMPLE,
+              .slot_bit_width = I2S_TX_SLOT_BITS,
               .slot_mode = I2S_CHANNEL_MODE,
               .slot_mask = I2S_STD_SLOT_BOTH,
-              .ws_width = I2S_WS_WIDTH,
+              .ws_width = I2S_TX_WS_WIDTH,
               .ws_pol = false, // LRCLK極性: Lowで左チャンネル
               .bit_shift =
                   true, // Philips I2S: 1ビットシフト（MSBが1クロック遅れる）
@@ -357,15 +408,18 @@ esp_err_t audio_i2s_init(void) {
           },
   };
 
-  i2s_std_config_t tx_cfg = std_cfg;
+  i2s_std_config_t rx_cfg = tx_cfg;
   tx_cfg.gpio_cfg.din = I2S_GPIO_UNUSED;
+  rx_cfg.slot_cfg.data_bit_width = I2S_RX_BITS_PER_SAMPLE;
+  rx_cfg.slot_cfg.slot_bit_width = I2S_RX_SLOT_BITS;
+  rx_cfg.slot_cfg.ws_width = I2S_RX_WS_WIDTH;
+  rx_cfg.gpio_cfg.dout = I2S_GPIO_UNUSED;
+  rx_cfg.gpio_cfg.din = I2S_DIN_GPIO;
   err = i2s_channel_init_std_mode(s_tx_chan, &tx_cfg);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "I2S std mode init failed: %s", esp_err_to_name(err));
     return err;
   }
-  i2s_std_config_t rx_cfg = std_cfg;
-  rx_cfg.gpio_cfg.dout = I2S_GPIO_UNUSED;
   err = i2s_channel_init_std_mode(s_rx_chan, &rx_cfg);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "I2S std RX init failed: %s", esp_err_to_name(err));

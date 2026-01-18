@@ -88,7 +88,7 @@ ESP-IDF の menuconfig で以下を設定してください。
 - GND: GND
 - BCK: GPIO32
 - LRCK: GPIO25
-- DOUT (PCM1808→ESP32): GPIO35
+- DOUT (PCM1808→ESP32): GPIO34
 - SCK/MCLK: GPIO0（ESP32のI2S MCLK出力）
   - 注意: MCLKが必要なADCなので、I2S設定でMCLKを有効化する（無効化する場合は `AUDIO_USE_MCLK` を 0 にする）
 

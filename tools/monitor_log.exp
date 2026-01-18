@@ -26,9 +26,9 @@ send "\x0c"
 expect {
     -re {Logging is enabled into file ([^ \r\n]+)} {
         set log_file $expect_out(1,string)
-        set src [file join $project_dir $log_file]
-        set dst $log_target
-        if {[file exists $src]} {
+        set src [file normalize [file join $project_dir $log_file]]
+        set dst [file normalize $log_target]
+        if {[file exists $src] && $src ne $dst} {
             file rename -force $src $dst
         }
     }
