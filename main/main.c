@@ -25,6 +25,7 @@ static const gpio_num_t LED_GPIO = GPIO_NUM_13;
 #define NUMBER_COMPLETE_TIMEOUT_MS 3000
 #define HANGUP_RETRY_DELAY_MS 800
 #define HANGUP_RETRY_MAX 3
+#define HOOK_HANGUP_ENABLED 0
 
 typedef enum {
     CALL_STATE_IDLE = 0,
@@ -209,12 +210,18 @@ static void handle_hook_on(void) {
         s_call_state == CALL_STATE_RINGING ||
         s_call_state == CALL_STATE_OUTBOUND_RING ||
         s_call_state == CALL_STATE_TALKING) {
-        ESP_LOGI(TAG, "Hangup call (on-hook)");
-        s_hangup_pending = true;
-        s_hangup_retries = 0;
-        hfp_hangup_call();
-        if (s_hangup_timer) {
-            esp_timer_start_once(s_hangup_timer, HANGUP_RETRY_DELAY_MS * 1000ULL);
+        if (HOOK_HANGUP_ENABLED) {
+            ESP_LOGI(TAG, "Hangup call (on-hook)");
+            s_hangup_pending = true;
+            s_hangup_retries = 0;
+            hfp_hangup_call();
+            if (s_hangup_timer) {
+                esp_timer_start_once(s_hangup_timer, HANGUP_RETRY_DELAY_MS * 1000ULL);
+            }
+        } else {
+            ESP_LOGW(TAG, "Hangup suppressed (HOOK_HANGUP_ENABLED=0)");
+            s_hangup_pending = false;
+            s_hangup_retries = 0;
         }
     }
 

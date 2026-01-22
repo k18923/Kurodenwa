@@ -28,6 +28,7 @@ static const char *HFP_AUTO_CONNECT_BDA = "fc:2a:9c:2b:50:44"; // XS Max
 #define HFP_AUTO_CONNECT_DELAY_MS 5000
 #define HFP_SEND_NREC 1
 #define HFP_AUDIO_DISCONNECT_DELAY_MS 400
+#define HFP_AUDIO_DISCONNECT_ENABLED 0
 
 static volatile esp_hf_client_connection_state_t g_conn_state =
     ESP_HF_CLIENT_CONNECTION_STATE_DISCONNECTED;
@@ -60,6 +61,10 @@ static void audio_disconnect_task(void *arg) {
 }
 
 static void schedule_audio_disconnect(const esp_bd_addr_t bda) {
+    if (!HFP_AUDIO_DISCONNECT_ENABLED) {
+        ESP_LOGW(TAG, "Audio disconnect suppressed (HFP_AUDIO_DISCONNECT_ENABLED=0)");
+        return;
+    }
     if (g_audio_disconnect_pending || g_audio_disconnect_task != NULL) {
         return;
     }
@@ -354,20 +359,23 @@ static void hfp_callback(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
                  param->audio_stat.preferred_frame_size);
         audio_state = param->audio_stat.state;
         g_audio_state = audio_state;
-        if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED ||
-            param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
+        if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED) {
             esp_hf_client_outgoing_data_ready();
         }
         if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED) {
             audio_i2s_reset_hfp_state();
             audio_i2s_set_hfp_enabled(true);
             audio_i2s_set_mic_enabled(true);
+            audio_i2s_set_hfp_audio_active(true);
+            audio_i2s_set_tx_enabled(true);
             g_audio_disconnect_pending = false;
         } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
             audio_i2s_set_hfp_enabled(false);
             audio_i2s_set_mic_enabled(false);
             audio_i2s_reset_hfp_state();
             audio_i2s_clear_buffer();
+            audio_i2s_set_hfp_audio_active(false);
+            audio_i2s_set_tx_enabled(false);
             g_audio_disconnect_pending = false;
             if (!g_msbc_warned) {
                 ESP_LOGW(TAG, "mSBC audio received but decode is not implemented; muting.");
@@ -380,6 +388,8 @@ static void hfp_callback(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
             audio_i2s_set_mic_enabled(false);
             audio_i2s_reset_hfp_state();
             audio_i2s_clear_buffer();
+            audio_i2s_set_hfp_audio_active(false);
+            audio_i2s_set_tx_enabled(false);
             g_audio_disconnect_pending = false;
         }
         break;
@@ -562,4 +572,7 @@ esp_err_t hfp_dial_number(const char *number) {
         ESP_LOGW(TAG, "Dial failed: %s", esp_err_to_name(err));
     }
     return err;
+}
+esp_hf_client_audio_state_t hfp_get_audio_state(void) {
+    return g_audio_state;
 }

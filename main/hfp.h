@@ -16,3 +16,4 @@ typedef void (*hfp_call_setup_callback_t)(esp_hf_call_setup_status_t status);
 
 void hfp_set_call_status_callback(hfp_call_status_callback_t callback);
 void hfp_set_call_setup_callback(hfp_call_setup_callback_t callback);
+esp_hf_client_audio_state_t hfp_get_audio_state(void);

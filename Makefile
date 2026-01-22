@@ -2,7 +2,8 @@
 
 BUILD_DIR ?= build
 TARGET    ?= esp32
-PORT      ?= /dev/cu.usbserial-110
+DETECTED_PORT ?= $(shell ls /dev/cu.usbserial* /dev/cu.usbmodem* /dev/cu.SLAB_USBtoUART* 2>/dev/null | head -n 1)
+PORT      ?= $(DETECTED_PORT)
 # PORT      ?= /dev/cu.usbserial-210
 # PORT      ?= /dev/cu.usbserial-2120
 BAUD      ?= 115200
@@ -39,10 +40,18 @@ fullclean:
 	$(IDF_PY) -B $(BUILD_DIR) fullclean
 
 flash: build
+	@if [ -z "$(PORT)" ]; then \
+		echo "PORT not found. Connect the device or set PORT=..."; \
+		exit 1; \
+	fi
 	@echo ">> $(IDF_PY) -B $(BUILD_DIR) -p $(PORT) flash"
 	$(IDF_PY) -p $(PORT) -b $(BAUD) flash
 
 monitor:
+	@if [ -z "$(PORT)" ]; then \
+		echo "PORT not found. Connect the device or set PORT=..."; \
+		exit 1; \
+	fi
 	@echo ">> $(IDF_PY) -B $(BUILD_DIR) -p $(PORT) monitor"
 	$(IDF_PY) -B $(BUILD_DIR) -p $(PORT) monitor
 
@@ -56,6 +65,10 @@ menuconfig:
 LOG_DIR ?= log
 LOG_FILE ?= $(LOG_DIR)/monitor.log
 log:
+	@if [ -z "$(PORT)" ]; then \
+		echo "PORT not found. Connect the device or set PORT=..."; \
+		exit 1; \
+	fi
 	@mkdir -p $(LOG_DIR)
 	@rm -f $(LOG_DIR)/log.*.txt $(LOG_FILE)
 	@echo "ログは自動で開始します（Ctrl+T → L で停止）"

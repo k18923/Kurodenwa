@@ -14,5 +14,7 @@ sdkconfig.old
 # direnv
 .envrc
 
+.cache
+
 # VSCode
 .vscode/
