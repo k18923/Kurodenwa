@@ -22,9 +22,9 @@ static const char *HFP_TEST_NUMBER = "08064853902";
 // static const char *HFP_AUTO_CONNECT_BDA = "f4:65:a6:74:f3:58"; // 13 Pro
 static const char *HFP_AUTO_CONNECT_BDA = "fc:2a:9c:2b:50:44"; // XS Max
 
-#define HFP_AUTO_ANSWER 1
+#define HFP_AUTO_ANSWER 0
 #define HFP_AUTO_DIAL 0
-#define HFP_AUTO_AUDIO 1
+#define HFP_AUTO_AUDIO 0
 #define HFP_AUTO_CONNECT_DELAY_MS 5000
 #define HFP_SEND_NREC 1
 #define HFP_AUDIO_DISCONNECT_DELAY_MS 400
