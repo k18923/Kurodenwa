@@ -16,9 +16,8 @@
 - HFP の SCO 音声データパスは `menuconfig` で **PCM** を選択する前提
 
 ### 非スコープ（現状未実装/未提供）
-- （高音質化は未実装だが）マイク入力（I2S ADC / PCM1808 取り込み）→ HFP 送話
 - mSBC デコード（mSBC の場合はミュート）
-- リングの鳴動パターン（ON/OFF 繰り返し等のパターン制御）
+ - 高音質化（EQ/AGC などの高度な音質調整）
 
 ## 2. ハードウェア構成
 
@@ -26,7 +25,7 @@
 - 黒電話 601A
 - KS0835F（SLIC / 電話回線エミュレータ）
 - PCM5102A（I2S DAC: スピーカー）
-- PCM1808（I2S ADC: マイク）※現状のファームでは未使用
+- PCM1808（I2S ADC: マイク）
 - （任意）WM8960（I2S Codec）※コードはあるがデフォルト無効
 
 ### GPIO 割り当て（現状実装）
@@ -36,7 +35,7 @@
 | I2S BCLK | PCM5102A | BCK | GPIO32 | `main/audio_i2s.c` |
 | I2S LRCLK | PCM5102A | LCK/LRCK | GPIO25 | `main/audio_i2s.c` |
 | I2S DOUT | PCM5102A | DIN | GPIO33 | `main/audio_i2s.c` |
-| I2S DIN | PCM1808 | DOUT | GPIO35 | `main/audio_i2s.c` |
+| I2S DIN | PCM1808 | DOUT | GPIO34 | `main/audio_i2s.c` |
 | I2S MCLK | （PCM1808等） | SCK/MCLK | GPIO0（`AUDIO_USE_MCLK=1`） | `main/audio_i2s.c` |
 | ベル制御 | KS0835F | F/R | GPIO5 | `main/ring_control.c` |
 | ベル制御 | KS0835F | RM | GPIO19 | `main/ring_control.c` |
@@ -49,7 +48,7 @@
 
 ### 配線メモ（README.md の要約）
 - PCM5102A: `VIN=5V`, `BCK=GPIO32`, `LRCK=GPIO25`, `DIN=GPIO33`, `SCK/MCLK=GND`（PLL利用）
-- PCM1808: `AVDD=5V`, `DVDD=3.3V`, `BCK=GPIO32`, `LRCK=GPIO25`, `DOUT=GPIO35`, `MCLK=GPIO0`（必要）
+- PCM1808: `AVDD=5V`, `DVDD=3.3V`, `BCK=GPIO32`, `LRCK=GPIO25`, `DOUT=GPIO34`, `MCLK=GPIO0`（必要）
 - KS0835F: `F/R=GPIO5`, `RM=GPIO19`, `SHK=GPIO21`, `+VDC=5V/3.3V`, `GND=GND`
 
 ## 3. ソフトウェア構成
@@ -84,17 +83,17 @@ main/
   - 固定 MAC が無効（パース失敗）の場合、bonded device の先頭を使う。
 
 ### 自動応答
-- 既定: ON（`HFP_AUTO_ANSWER=1`）
+- 既定: OFF（`HFP_AUTO_ANSWER=0`）
 - コンソールコマンド `a` で切替。
 
 ### SCO 音声接続の扱い
-- `HFP_AUTO_AUDIO=1` のため、通話が `IN_PROGRESS` になったら `esp_hf_client_connect_audio()` を要求する。
-- 通話が終わったら一定遅延（`HFP_AUDIO_DISCONNECT_DELAY_MS=400ms`）後に `esp_hf_client_disconnect_audio()` を要求する。
+- `HFP_AUTO_AUDIO=0` のため、アプリ側の明示的な制御で音声接続を要求する。
+- 自動切断は抑止（`HFP_AUDIO_DISCONNECT_ENABLED=0`）。
 
 ### コーデックの扱い（制限）
 - mSBC のデコードは未実装。
   - `ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC` の場合は `audio_i2s_set_hfp_enabled(false)` でミュートし警告ログを出す。
-- CVSD/PCM の場合: 受信データを I2S 再生へ投入する（送話データはゼロ埋め）。
+- CVSD/PCM の場合: 受信データを I2S 再生へ投入し、送話はマイク入力を送出する。
 
 ## 5. 音声（I2S）仕様（現状実装）
 
@@ -108,6 +107,9 @@ main/
 - 48kHz への変換は単純アップサンプル（整数倍のみ）+ 線形補間 + DC ブロック + 固定ゲイン。
 - 片チャンネルとして処理し、左右に同一サンプルを出力する。
 
+### マイク送話
+- PCM1808 から取り込んだデータをダウンサンプルし、DC ブロックと簡易ノイズゲートを適用して HFP 送話に使用する。
+
 ### テストトーン
 - コンソールコマンド `t` で 440Hz 正弦波トーンを ON/OFF。
 - トーン ON 中は HFP 音声を無効化し、ストリームバッファをクリアする（無音時ノイズ対策の一部）。
@@ -116,13 +118,10 @@ main/
 
 - `ring_control_start()`:
   - `RM=HIGH`、`F/R` を一定周期でトグル。
+  - 鳴動パターン: 約1秒鳴る → 約2秒止まる を繰り返す。
 - トグル周期: `RING_TOGGLE_PERIOD_US=20000us`
-  - トグルなのでベル駆動としては 20〜25Hz 相当を想定（README と整合）。
 - `ring_control_stop()`:
   - タイマ停止、`F/R=LOW`、`RM=LOW`。
-
-補足:
-- 現状は「鳴らし続ける」だけで、一般的なベルの「鳴動→休止→鳴動…」パターン制御は未実装。
 
 ## 7. フック / パルスダイヤル仕様（現状実装）
 

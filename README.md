@@ -27,7 +27,7 @@ idf.py build
 idf.py -p /dev/tty.usbserial-XXXX flash monitor
 ```
 
-Makefile を使う場合:
+Makefile を使う場合（PORT は自動検出）:
 
 ```bash
 make build
@@ -74,13 +74,6 @@ ESP-IDF の menuconfig で以下を設定してください。
   - DEMP: L（デエンファシス無効）
   - FLT: L（シャープロールオフ）
 
-#### 今回の修正内容
-
-- 矩形波→正弦波（クリアな音）
-- PCM1808 取り込みのため I2S を 32bit スロットに変更（PCM5102A は 16bit 相当を上位ビットに載せて送出）
-- SCKピンをGNDへ接続（内部PLL用）
-- 無音時のノイズ対策: HFP無効時はゼロ出力
-
 ### PCM1808 (I2S ADC)
 
 - AVDD: 5V（アナログ電源）
@@ -104,6 +97,10 @@ ESP-IDF の menuconfig で以下を設定してください。
 | 9 | GND | GND | 共通グランド |
 | 10 | +VDC | 5V / 3.3V | 電源入力。ベル鳴動時は電流が増えるので注意 |
 | 11 | PD | NC / GPIO | パワーダウン。LOW で停止。HIGH 直結は避ける |
+
+### ベル鳴動パターン
+
+- 約1秒鳴る → 約2秒止まる を繰り返す
 
 ## 構成
 
