@@ -3,7 +3,6 @@ idf_component_register(
         "main.c"
         "hfp.c"
         "audio_i2s.c"
-        "wm8960.c"
         "ring_control.c"
         "dial_hook.c"
        

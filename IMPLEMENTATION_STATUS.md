@@ -51,8 +51,8 @@
 - **Implemented**:
   - [x] CLI Console (UART) for debugging (`t`, `r`, `s` commands).
   - [x] Finite State Machine (IDLE -> DIALING -> TALKING).
+  - [x] **Cleanup**: Legacy `wm8960.c` and `wm8960.h` removed (unused, PCM5102A/PCM1808 used instead).
 - **Pending**:
-  - [ ] **Cleanup**: Remove legacy `wm8960.c` if verified unused.
   - [ ] **Power Saving**: Implement KS0835F Power Down (PD) control.
 
 ## Usage Guide (CLI)
