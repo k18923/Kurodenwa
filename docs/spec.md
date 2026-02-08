@@ -26,7 +26,6 @@
 - KS0835F（SLIC / 電話回線エミュレータ）
 - PCM5102A（I2S DAC: スピーカー）
 - PCM1808（I2S ADC: マイク）
-- （任意）WM8960（I2S Codec）※コードはあるがデフォルト無効
 
 ### GPIO 割り当て（現状実装）
 
@@ -61,7 +60,6 @@ main/
   audio_i2s.c/audio_i2s.h  I2S 再生（HFP受信音声の簡易処理/アップサンプル）
   ring_control.c/.h        ベル鳴動（GPIO トグル + RM 制御）
   dial_hook.c/.h           フック/パルスダイヤル検出
-  wm8960.c/.h              WM8960 初期化（任意）
 ```
 
 ### 役割分担（概略）

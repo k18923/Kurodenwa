@@ -14,12 +14,7 @@
 #include "freertos/task.h"
 
 #define AUDIO_CODEC_PCM5102A 1
-#define AUDIO_CODEC_WM8960 0
 #define AUDIO_USE_MCLK 1 // 0にするとMCLK出力を無効化
-
-#if AUDIO_CODEC_WM8960
-#include "wm8960.h"
-#endif
 
 #define I2S_BCLK_GPIO GPIO_NUM_32
 #define I2S_LRCLK_GPIO GPIO_NUM_25
@@ -412,12 +407,6 @@ static void mic_capture_task(void *arg) {
 
 esp_err_t audio_i2s_init(void) {
   esp_err_t err = ESP_OK;
-#if AUDIO_CODEC_WM8960
-  err = wm8960_init();
-  if (err != ESP_OK) {
-    ESP_LOGW(TAG, "WM8960 init failed: %s", esp_err_to_name(err));
-  }
-#endif
 
   i2s_chan_config_t chan_cfg =
       I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
