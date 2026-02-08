@@ -199,5 +199,4 @@ UART0 上で簡易コンソールを起動し、以下のコマンドを提供�
 
 ## 12. 参考資料（リポジトリ内）
 - `docs/HFP_v1.9.pdf` / `docs/HFP_v1.9 ja.pdf`: HFP 仕様（参照用）
-- `docs/WM8960.pdf`: WM8960 データシート
 - `docs/esp32_devkitC_v4_pinlayout.png`: ピン配置
