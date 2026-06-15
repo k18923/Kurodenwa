@@ -206,11 +206,11 @@ static void audio_i2s_task(void *arg) {
         }
         ESP_LOGI(TAG, "Tone fade-out complete, buffer cleared");
         // ゼロ出力を書き込んで完全な無音を確保
-        memset(out_buf, 0, sizeof(out_buf));
+        memset(out_buf, 0, sizeof(s_out_buf));
         size_t bytes_written = 0;
-        i2s_channel_write(s_tx_chan, out_buf, sizeof(out_buf), &bytes_written,
+        i2s_channel_write(s_tx_chan, out_buf, sizeof(s_out_buf), &bytes_written,
                           pdMS_TO_TICKS(I2S_WRITE_TIMEOUT_MS));
-        i2s_channel_write(s_tx_chan, out_buf, sizeof(out_buf), &bytes_written,
+        i2s_channel_write(s_tx_chan, out_buf, sizeof(s_out_buf), &bytes_written,
                           pdMS_TO_TICKS(I2S_WRITE_TIMEOUT_MS));
       }
 
@@ -234,14 +234,14 @@ static void audio_i2s_task(void *arg) {
     }
 
     size_t read_len = xStreamBufferReceive(s_audio_stream, in_buf,
-                                           sizeof(in_buf), pdMS_TO_TICKS(20));
+                                           sizeof(s_in_buf), pdMS_TO_TICKS(20));
     if (!i2s_tx_ready()) {
       continue;
     }
     if (read_len < 2) {
-      memset(out_buf, 0, sizeof(out_buf));
+      memset(out_buf, 0, sizeof(s_out_buf));
       size_t bytes_written = 0;
-      esp_err_t err = i2s_channel_write(s_tx_chan, out_buf, sizeof(out_buf),
+      esp_err_t err = i2s_channel_write(s_tx_chan, out_buf, sizeof(s_out_buf),
                                         &bytes_written,
                                         pdMS_TO_TICKS(I2S_WRITE_TIMEOUT_MS));
       if (err != ESP_OK) {

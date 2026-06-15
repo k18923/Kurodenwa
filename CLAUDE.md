@@ -89,6 +89,8 @@ OFFHOOK_IDLE → DIALING → OUTBOUND_RING → TALKING
 | `r` | Toggle bell manually |
 | `a` | Toggle auto-answer |
 | `b` | Toggle ring-on-incoming |
+| `d <number>` | Dial a number via HFP (e.g. `d 09012345678`) |
+| `h` | Hang up the current call |
 | `s` | Show status |
 | `?` | Help |
 

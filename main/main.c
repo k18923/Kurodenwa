@@ -191,11 +191,6 @@ static void handle_hook_off(void) {
         call_state_set(CALL_STATE_OFFHOOK_IDLE, "hook off");
         return;
     }
-
-    if (s_call_state == CALL_STATE_RINGING) {
-        call_state_set(CALL_STATE_OFFHOOK_IDLE, "ringing->offhook");
-        return;
-    }
 }
 
 static void handle_hook_on(void) {
@@ -407,9 +402,35 @@ static int cmd_help(int argc, char **argv) {
     printf("  r        ベル手動トグル\n");
     printf("  a        自動応答 ON/OFF\n");
     printf("  b        鳴動 ON/OFF\n");
+    printf("  d <番号>  発信 (例: d 09012345678)\n");
+    printf("  h        切断 (ハングアップ)\n");
     printf("  s        状態表示\n");
     printf("  ?        ヘルプ表示\n");
     printf("====================\n\n");
+    return 0;
+}
+
+static int cmd_dial(int argc, char **argv) {
+    if (argc < 2 || argv[1] == NULL || argv[1][0] == '\0') {
+        printf("使い方: d <電話番号>\n");
+        return 0;
+    }
+    ESP_LOGI(TAG, "Console dial: %s", argv[1]);
+    esp_err_t err = hfp_dial_number(argv[1]);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Dial failed: %s", esp_err_to_name(err));
+    }
+    return 0;
+}
+
+static int cmd_hangup(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
+    ESP_LOGI(TAG, "Console hangup");
+    esp_err_t err = hfp_hangup_call();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Hangup failed: %s", esp_err_to_name(err));
+    }
     return 0;
 }
 
@@ -491,6 +512,24 @@ static void register_console_commands(void) {
         .argtable = NULL,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&ring_enable_cmd));
+
+    const esp_console_cmd_t dial_cmd = {
+        .command = "d",
+        .help = "Dial a number (d <number>)",
+        .hint = " <number>",
+        .func = &cmd_dial,
+        .argtable = NULL,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&dial_cmd));
+
+    const esp_console_cmd_t hangup_cmd = {
+        .command = "h",
+        .help = "Hang up the current call",
+        .hint = NULL,
+        .func = &cmd_hangup,
+        .argtable = NULL,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&hangup_cmd));
 
     const esp_console_cmd_t status_cmd = {
         .command = "s",
